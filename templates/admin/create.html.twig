@@ -1,0 +1,23 @@
+{% extends '@!PrestaShop/Admin/layout.html.twig' %}
+{% block content %}
+    <div class="card">
+        <div class="card-header">
+            <div>
+                <h1 class="title">{{ 'Dodaj/edytuj użytkownika'|trans() }}</h1>
+            </div>
+        </div>
+        <div class="card-body">
+            {{ form_start(form) }}
+                {{ form_errors(form) }}
+                <div class="form-group">
+                    {{ form_label(form.name, null, {'label_attr': {'class': 'col-sm-2 control-label'}}) }}
+                    <div class="col-sm-10">
+                        {{ form_errors(form.name) }}
+                        {{ form_widget(form.name, {'attr': {'class': 'form-control'}}) }}
+                    </div>
+                </div>
+            {{ form_row(form.save, { 'label': 'Zapisz', 'attr': {'class': 'btn btn-success'}}) }}
+            {{ form_end(form) }}
+        </div>
+    </div>
+{% endblock %}

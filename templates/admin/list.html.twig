@@ -1,0 +1,59 @@
+{% extends '@PrestaShop/Admin/layout.html.twig' %}
+{% block content %}
+
+{% for message in app.flashes('notice') %}
+    <div class="alert alert-notice">
+        {{ message }}
+    </div>
+{% endfor %}
+
+<div class="card">
+    <div class="card-header">
+        <div>
+            <h1 class="title">{{ 'Użytkownicy allegro'|trans() }}</h1>
+            <div class="wrapper">
+                <a class="btn btn-primary pointer" id="page-header-desc-configuration-add" href="{{ path('allegro_account_create') }}" title="Add new order">
+                    <i class="material-icons">add_circle_outline</i>{{ 'Dodaj użytkownika'|trans() }}
+                </a>
+            </div>
+        </div>
+    </div>
+    <div class="card-body">
+        {% if(data) %}
+            <table class="table table-bordered">
+                <thead>
+                <tr>
+                    <th>#</th>
+                    <th>{{ 'Nazwa konta'|trans() }}</th>
+                    <th>{{ 'Zautoryzowany'|trans() }}</th>
+                    <th>{{ 'Opcje'|trans() }}</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for allegroAccount in data %}
+                    <tr>
+                        <th scope="row">{{ allegroAccount.id }}</th>
+                        <td>{{ allegroAccount.name }}</td>
+                        <td>
+                            {% if 'ALLEGRO_OAUTH_TOKEN_SERIALIZED'|configuration %}
+                                <i class="material-icons mi-done">done</i>
+                            {% else %}
+                                <a href="{{ allegroAccountUrls[allegroAccount.id]}}" target="_blank">
+                                    <button type="submit" class="btn btn-success" >{{ 'Zautoryzuj'|trans() }}</button>
+                                </a>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <a href="{{ path('allegro_account_update', {'id': allegroAccount.id }) }}" type="button" class="btn btn-primary">{{ 'Edytuj'|trans() }}</a>
+                            <a href="{{ path('allegro_account_delete', {'id': allegroAccount.id }) }}" type="button" class="btn btn-danger">{{ 'Usuń'|trans() }}</a>
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        {% else %}
+            {{ 'Nie znaleziono żadnych rekordów'|trans() }}
+        {% endif %}
+    </div>
+</div>
+{% endblock %}

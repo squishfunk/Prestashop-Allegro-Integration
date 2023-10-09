@@ -1,0 +1,47 @@
+# ALLEGRO ACCOUNT CRUD
+allegro_account_create:
+  path: allegro_accounts/create
+  methods: [ GET, POST ]
+  defaults:
+    _controller: 'Allegro\Controller\AdminAllegroAccountsController::createAction'
+
+allegro_account_list:
+  path: allegro_accounts/list
+  methods: [ GET ]
+  defaults:
+    _controller: 'Allegro\Controller\AdminAllegroAccountsController::listAction'
+    _legacy_controller: 'AdminAllegroAccounts'
+    _legacy_link: 'AdminAllegroAccounts'
+
+allegro_account_update:
+  path: allegro_accounts/update/{id}
+  methods: [ GET, POST ]
+  defaults:
+    _controller: 'Allegro\Controller\AdminAllegroAccountsController::updateAction'
+
+allegro_account_delete:
+  path: allegro_accounts/delete/{id}
+  methods: [ GET, POST ]
+  defaults:
+    _controller: 'Allegro\Controller\AdminAllegroAccountsController::deleteAction'
+
+allegro_account_store_token:
+  path: allegro_accounts/store_allegro_token
+  methods: [ GET, POST ]
+  defaults:
+    _controller: 'Allegro\Controller\AdminAllegroAccountsController::actionSaveAllegroToken'
+
+
+# ALLEGRO CRON CONTROLLER
+
+allegro_import_products:
+  path: allegro_cron/import_products
+  methods: [ GET ]
+  defaults:
+    _controller: 'Allegro\Controller\AllegroCronController::importProductsFromAllegro'
+
+allegro_test_url:
+  path: allegro/test
+  methods: [ GET ]
+  defaults:
+    _controller: 'Allegro\Controller\AllegroCronController::test'
