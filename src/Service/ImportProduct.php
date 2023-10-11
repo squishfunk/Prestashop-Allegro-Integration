@@ -2,6 +2,7 @@
 namespace Allegro\Service;
 
 use Allegro\Singleton\AllegroSingleton;
+use Category;
 use Configuration;
 use Context;
 use Db;
@@ -9,6 +10,7 @@ use Hook;
 use Image;
 use ImageManager;
 use ImageType;
+use Imper86\PhpAllegroApi\AllegroApi;
 use Imper86\PhpAllegroApi\Enum\ContentType;
 use Language;
 use Shop;
@@ -19,79 +21,120 @@ use Tools;
 class ImportProduct implements ImportServiceInterface
 {
 
-    private mixed $offer;
+    /**
+     * @var AllegroApi
+     */
+    private AllegroApi $api;
+
+    /**
+     * ImportProduct constructor.
+     */
+    public function __construct()
+    {
+        $this->api = AllegroSingleton::getInstance();
+    }
 
     public function run(): void{
-        $api = AllegroSingleton::getInstance();
+        /* 24h */
+        set_time_limit(1 * 60 * 60 * 24);
 
+        $actualOffset = 0;
+        $pageLimit = 20;
         /* Pobranie ofert */
-        $offers = json_decode($api->sale()->offers()->get()->getBody()->getContents(), true);
+        do{
+            $offers = json_decode($this->api->sale()->offers()->get(null, ['offset' => $actualOffset, 'limit' => $pageLimit])->getBody()->getContents(), true);
 
-        foreach($offers['offers'] as $offer_data){
-            /* Pobranie szczegółowe oferty */
-            $offer = json_decode($api->sale()->productOffers()->get($offer_data['id'], ContentType::VND_PUBLIC_V1)->getBody()->getContents(), true);
+            foreach($offers['offers'] as $offer_data){
 
-            [$ean, $features] = $this->getDataFromAllegroProductParameters($offer);
+                /* Pobranie szczegółowe oferty */
+                $offer = json_decode($this->api->sale()->productOffers()->get($offer_data['id'], ContentType::VND_PUBLIC_V1)->getBody()->getContents(), true);
+                if(!isset($offer['productSet'][0]['product']) || !isset($offer['external']['id'])){
+                    continue;
+                }
 
-            $product = json_decode($api->sale()->products()->get($offer['productSet'][0]['product']['id'])->getBody()->getContents(), true);
+                [$ean, $features] = $this->getDataFromAllegroProductParameters($offer);
 
-            $productName = $product['name'];
-            $productQuantity = 1; /* TODO znaleźć gdzie jest info o ilości sztuk */
-            $productDescription = $product['description']['sections'][0]['items'][1]['content']; /* TODO */
-            $productPrice = $offer['sellingMode']['price']['amount'];
-            $urlList = array_map(fn($item) => $item['url'], $product['images']);
+                if(/* Ustawienie czy opis pobierać z katalogu allegro czy oferty */true){
+                    $productName = $offer['name'];
+                    $productDescription = $this->getDescriptionFromAllegroProduct($offer['description']);
+                    $urlList = $offer['images'];
+                }
+                if((empty($productDescription) || empty($urlList)) && isset($offer['productSet'][0]['product']['id'])){
+                    $product = json_decode($this->api->sale()->products()->get($offer['productSet'][0]['product']['id'])->getBody()->getContents(), true);
+//                    $productName = $product['name'];
+                    if(empty($productDescription)){
+                        $productDescription = $this->getDescriptionFromAllegroProduct($product['description']);
+                    }if(empty($urlList)){
+                        $urlList = array_map(fn($item) => $item['url'], $product['images']);
+                    }
+                }
 
-            try {
-                $this->addOrUpdateProduct(
-                    $ean,                // Product EAN13
-                    $offer['id'],        // Product reference
-                    $productName,        // Product name
-                    $productQuantity,    // Product quantity
-                    $productDescription, // Product description
-                    $features,           // Product features (array)
-                    $productPrice,       // Product price
-                    $urlList,         // Product images
-                    1,             // Product default category
-                    array(1)          // All categories for product (array)
-                );
-            } catch (\PrestaShopDatabaseException $e) {
-            } catch (\PrestaShopException $e) {
+                $productQuantity = $offer['stock']['available'];
+                $productPrice = $offer['sellingMode']['price']['amount'];
+                $productRef = $offer['external']['id'];
+
+                $mainCategoryId = $this->getMainAllegroCategoryIdAndImport($offer['category']['id'], true);
+
+                try {
+                    $this->addOrUpdateProduct(
+                        $ean,
+                        $productRef,
+                        $productName,
+                        $productQuantity,
+                        $productDescription,
+                        $features,
+                        $productPrice,
+                        $urlList,
+                        $mainCategoryId,
+                        array()
+                    );
+                } catch (\PrestaShopDatabaseException | \PrestaShopException $e) {
+                    dump($e);
+                }
             }
-        }
-
-
+            $actualOffset++;
+        }while(count($offers['offers']) == $pageLimit);
     }
 
     /**
      * @param string $search
-     * @param int $id_shop
-     * @param int $id_lang
      * @return false|string|null
      */
-    private function getProductIdByProductName(string $search, int $id_shop = 1, int $id_lang = 1)
+    private function getProductIdByProductReference(string $search)
     {
         return Db::getInstance()->getValue('
         SELECT id_product
-        FROM '._DB_PREFIX_.'product_lang
-        WHERE name LIKE "%'.(string)$search.'%"
-        AND id_shop = '.$id_shop.' AND id_lang = '.$id_lang.'
+        FROM '._DB_PREFIX_.'product
+        WHERE `reference` = "'.pSQL($search).'"
         ');
     }
 
-
     /**
-     * @throws \PrestaShopException
+     * @param $ean13    - Product EAN13
+     * @param $ref      - Product reference
+     * @param $name     - Product name
+     * @param $qty      - Product quantity
+     * @param $text     - Product description
+     * @param $features - Product features (array)
+     * @param $price    - Product price
+     * @param $imgUrls  - Product images
+     * @param $catDef   - Product default category
+     * @param $catAll   - All categories for product (array)
      * @throws \PrestaShopDatabaseException
+     * @throws \PrestaShopException
      */
     function addOrUpdateProduct($ean13, $ref, $name, $qty, $text, $features, $price, $imgUrls, $catDef, $catAll) {
-        if($productId = $this->getProductIdByProductName($name)){
+        $new = true;
+        if($productId = $this->getProductIdByProductReference($ref)){
             $product = new Product($productId);
+            $new = false;
         }else{
             $product = new Product();
         }
+
         $product->ean13 = $ean13;
         $product->reference = $ref;
-        $product->name = $this->createMultiLangField(utf8_encode($name));
+        $product->name = $this->createMultiLangField($name);
         $product->description = htmlspecialchars($text);
         $product->id_category_default = $catDef;
         $product->redirect_type = '301';
@@ -102,17 +145,20 @@ class ImportProduct implements ImportServiceInterface
         $product->online_only = 0;
         $product->meta_description = '';
         $product->link_rewrite = $this->createMultiLangField(Tools::str2url($name));
-        if(!$product->id){
-            $product->add();
-        }
-        StockAvailable::setQuantity($product->id, null, $qty); // id_product, id_product_attribute, quantity
-        $product->addToCategories($catAll);     // After product is submitted insert all categories
+        $product->save();
 
+        StockAvailable::setQuantity($product->id, null, $qty); // id_product, id_product_attribute, quantity
+        if(!empty($catAll)){
+            $product->addToCategories($catAll);
+        }
 
         $this->createOrUpdateProductFeatures($product->id, $features);
-        $this->createOrUpdateProductPhotos($product->id, $imgUrls);
+        if($new){
+            /* TODO */
+            $this->createOrUpdateProductPhotos($product->id, $imgUrls);
+        }
 
-        echo 'Product added successfully (ID: ' . $product->id . ')';
+        echo 'Product added successfully (ID: ' . $product->id . ') <br>';
     }
 
     private function createMultiLangField($field) {
@@ -123,32 +169,30 @@ class ImportProduct implements ImportServiceInterface
         return $res;
     }
 
-    private function uploadImage($id_entity, $id_image = null, array $imgUrls) {
+    private function uploadImage($id_entity, $id_image = null, string $imgUrl) {
         $tmpfile = tempnam(_PS_TMP_IMG_DIR_, 'ps_import');
         $watermark_types = explode(',', Configuration::get('WATERMARK_TYPES'));
         $image_obj = new Image((int)$id_image);
         $path = $image_obj->getPathForCreation();
 
         // Evaluate the memory required to resize the image: if it's too big we can't resize it.
-        foreach($imgUrls as $imgUrl){
-            if (!ImageManager::checkImageMemoryLimit($imgUrl)) {
-                continue;
-            }
-            if (@copy($imgUrl, $tmpfile)) {
-                ImageManager::resize($tmpfile, $path . '.jpg');
-                $images_types = ImageType::getImagesTypes('products');
-                foreach ($images_types as $image_type) {
-                    ImageManager::resize($tmpfile, $path . '-' . stripslashes($image_type['name']) . '.jpg', $image_type['width'], $image_type['height']);
-                    if (in_array($image_type['id_image_type'], $watermark_types)) {
-                        Hook::exec('actionWatermark', array('id_image' => $id_image, 'id_product' => $id_entity));
-                    }
-                }
-            } else {
-                unlink($tmpfile);
-                continue;
-            }
-            unlink($tmpfile);
+        if (!ImageManager::checkImageMemoryLimit($imgUrl)) {
+            return false;
         }
+        if (@copy($imgUrl, $tmpfile)) {
+            ImageManager::resize($tmpfile, $path . '.jpg');
+            $images_types = ImageType::getImagesTypes('products');
+            foreach ($images_types as $image_type) {
+                ImageManager::resize($tmpfile, $path . '-' . stripslashes($image_type['name']) . '.jpg', $image_type['width'], $image_type['height']);
+                if (in_array($image_type['id_image_type'], $watermark_types)) {
+                    Hook::exec('actionWatermark', array('id_image' => $id_image, 'id_product' => $id_entity));
+                }
+            }
+        } else {
+            unlink($tmpfile);
+            return false;
+        }
+        unlink($tmpfile);
 
         return true;
     }
@@ -226,15 +270,102 @@ class ImportProduct implements ImportServiceInterface
     private function createOrUpdateProductPhotos(string $productId, array $imgUrls): void
     {
         $shops = Shop::getShops(true, null, true);
-        $image = new Image();
-        $image->id_product = $productId;
-        $image->position = Image::getHighestPosition($productId) + 1;
-        $image->cover = true;
-        if (($image->validateFields(false, true)) === true && ($image->validateFieldsLang(false, true)) === true && $image->add()) {
-            $image->associateTo($shops);
-            if (!$this->uploadImage($productId, $image->id, $imgUrls)) {
-                $image->delete();
+        foreach(array_values($imgUrls) as $index => $imgUrl){
+            $image = new Image();
+            $image->id_product = $productId;
+            $image->position = Image::getHighestPosition($productId) + 1;
+            if($index == 0){
+                $image->cover = true;
+            }else{
+                $image->cover = false;
+            }
+            if (($image->validateFields(false, true)) === true && ($image->validateFieldsLang(false, true)) === true && $image->add()) {
+                $image->associateTo($shops);
+                if (!$this->uploadImage($productId, $image->id, $imgUrl)) {
+                    $image->delete();
+                }
             }
         }
+    }
+
+
+    /**
+     * Funkcja generuje opis produktu ze struktury opisu allegro
+     * @param array|null $allegroDescription
+     * @return string
+     */
+    private function getDescriptionFromAllegroProduct(array|null $allegroDescription): string
+    {
+        $description = '';
+        if(isset($allegroDescription['sections'])){
+            foreach($allegroDescription['sections'] as $descriptionSection){
+                foreach($descriptionSection['items'] as $item){
+                    if($item['type'] == 'TEXT'){
+                        $description .= $item['content'];
+                    }elseif($item['type'] == 'IMAGE'){
+                        /* TODO */
+                        /* $x .= $item['url']; */
+                        continue;
+                    }
+                }
+            }
+        }
+        return $description;
+    }
+
+    /**
+     * Funkcja zwraca najwyższy poziom kategorii
+     * @param $categoryId
+     * @param bool $import
+     */
+    private function getMainAllegroCategoryIdAndImport($categoryId, $import = false)
+    {
+        $returnCategoryId = 0;
+        $categoryAllegro = null;
+        while(true){
+            $categoryAllegro = json_decode($this->api->sale()->categories()->get($categoryId)->getBody()->getContents(), true);
+            if(!isset($categoryAllegro['parent']['id'])){
+                $returnCategoryId = $categoryId;
+                break;
+            }else{
+                $categoryId = $categoryAllegro['parent']['id'];
+            }
+        }
+
+        /* w tym momencie $returnCategoryId ma najwyższą kategorię */
+        if($import && $categoryAllegro){
+            if($psCategoryId = $this->getCategoryIdByCategoryName($categoryAllegro['name'])){
+                $category = new Category($psCategoryId);
+            }else{
+                $category = new Category();
+            }
+
+            $category->active       = 1;
+            $category->id_parent    = 0;
+            $category->name         = $this->createMultiLangField($categoryAllegro['name']);
+            $category->link_rewrite = $this->createMultiLangField(Tools::str2url($categoryAllegro['name']));
+
+            try {
+                $category->save();
+            } catch (\PrestaShopDatabaseException | \PrestaShopException $e) {
+                dd($e);
+            }
+            return $category->id;
+        }
+        return $returnCategoryId;
+    }
+
+    /**
+     * @param string $search
+     * @return false|string|null
+     */
+    private function getCategoryIdByCategoryName(string $search,  $id_lang = 1, $id_shop = 1)
+    {
+        $return = Db::getInstance()->getValue('
+        SELECT id_category
+        FROM '._DB_PREFIX_.'category_lang
+        WHERE `name` LIKE "%'.pSQL($search).'%"
+        ');
+        return $return;
     }
 }

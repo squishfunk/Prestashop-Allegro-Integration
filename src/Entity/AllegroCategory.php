@@ -19,16 +19,23 @@ class AllegroCategory
     private $id;
 
     /**
+     * @var int
+     *
+     * @ORM\Column(type="integer")
+     */
+    private $allegroId;
+
+    /**
      * @var string
      *
      * @ORM\Column(type="string")
      */
-    private $allegroName;
+    private $name;
 
     /**
-     * @var int
+     * @var int|null
      *
-     * @ORM\Column(type="integer")
+     * @ORM\Column(type="integer", nullable=true)
      */
     private $parentId;
 
@@ -57,33 +64,49 @@ class AllegroCategory
     /**
      * @return string
      */
-    public function getAllegroName(): string
+    public function getOptions(): string
     {
-        return $this->allegroName;
+        return $this->options;
     }
 
     /**
-     * @param string $allegroName
+     * @param string $options
      */
-    public function setAllegroName(string $allegroName): void
+    public function setOptions(string $options): void
     {
-        $this->allegroName = $allegroName;
+        $this->options = $options;
     }
 
     /**
      * @return int
      */
-    public function getParentId(): int
+    public function getAllegroId(): int
     {
-        return $this->parentId;
+        return $this->allegroId;
     }
 
     /**
-     * @param int $parentId
+     * @param int $allegroId
      */
-    public function setParentId(int $parentId): void
+    public function setAllegroId(int $allegroId): void
     {
-        $this->parentId = $parentId;
+        $this->allegroId = $allegroId;
+    }
+
+    /**
+     * @return string
+     */
+    public function getName(): string
+    {
+        return $this->name;
+    }
+
+    /**
+     * @param string $name
+     */
+    public function setName(string $name): void
+    {
+        $this->name = $name;
     }
 
     /**
@@ -103,19 +126,19 @@ class AllegroCategory
     }
 
     /**
-     * @return string
+     * @return int|null
      */
-    public function getOptions(): string
+    public function getParentId(): ?int
     {
-        return $this->options;
+        return $this->parentId;
     }
 
     /**
-     * @param string $options
+     * @param int|null $parentId
      */
-    public function setOptions(string $options): void
+    public function setParentId(?int $parentId): void
     {
-        $this->options = $options;
+        $this->parentId = $parentId;
     }
 
 }

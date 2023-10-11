@@ -23,8 +23,8 @@ class AllegroSingleton
             $credentials = new Credentials(
                 Configuration::get('ALLEGRO_CLIENT_ID'),
                 Configuration::get('ALLEGRO_CLIENT_SECRET'),
-                'http://localhost/presta/admin-dev/modules/allegro_accounts/store_allegro_token', /* TODO jakoś to zmień po prostu */
-                true
+                _PS_BASE_URL_.__PS_BASE_URI__.basename(_PS_ADMIN_DIR_).'/modules/allegro_accounts/store_allegro_token',
+                (bool)Configuration::get('ALLEGRO_TEST_MODE'),
             );
 
             $tokenRepository = new DbTokenRepository();

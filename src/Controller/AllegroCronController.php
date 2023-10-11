@@ -20,7 +20,7 @@ class AllegroCronController extends FrameworkBundleAdminController
 
 
     function test(){
-        (new ImportAllegroCategories())->run();
+        (new ImportAllegroCategories($this->getDoctrine()->getManager()))->run();
         exit;
     }
 }

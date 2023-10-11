@@ -24,14 +24,24 @@
 *  International Registered Trademark & Property of PrestaShop SA
 */
 
+use Allegro\Db\ModuleInstallationManager;
+
 if (!defined('_PS_VERSION_')) {
     exit;
 }
+
+require_once _PS_MODULE_DIR_ . 'allegro/src/Db/ModuleInstallationManager.php';
+
 
 
 class Allegro extends Module
 {
     protected $config_form = false;
+
+    /**
+     * @var ModuleInstallationManager
+     */
+    private $moduleInstallationManager;
 
     public function __construct()
     {
@@ -54,6 +64,8 @@ class Allegro extends Module
         $this->confirmUninstall = $this->l('All integration settings will be deleted');
 
         $this->ps_versions_compliancy = array('min' => '1.6', 'max' => _PS_VERSION_);
+
+        $this->moduleInstallationManager = new ModuleInstallationManager();
     }
 
     /**
@@ -275,24 +287,20 @@ class Allegro extends Module
     }
 
     public function installSql(): bool {
-        // Tworzenie tabeli
-//        $sql = 'CREATE TABLE IF NOT EXISTS `' . _DB_PREFIX_ . 'allegro_accounts` (
-//        `id_allegro_accounts` INT AUTO_INCREMENT PRIMARY KEY,
-//        `name` VARCHAR(255) NOT NULL,
-//        `authorized` TINYINT(1) NOT NULL DEFAULT 0
-//        ) ENGINE=' . _MYSQL_ENGINE_ . ' DEFAULT CHARSET=utf8;';
+        $sqls = $this->moduleInstallationManager->getInstallationSql();
 
-        $sql = "CREATE TABLE IF NOT EXISTS ps_allegro_account (id_allegro_account INT AUTO_INCREMENT NOT NULL, name VARCHAR(255) NOT NULL, authorized TINYINT(1) DEFAULT '0' NOT NULL, PRIMARY KEY(id_allegro_account))";
-
-        if (!Db::getInstance()->execute($sql)) {
-            return false;
+        foreach($sqls as $sql){
+            if (!Db::getInstance()->execute($sql)) {
+                return false;
+            }
         }
+
         return true;
     }
 
     public function uninstallSql(): bool {
         // usuwanie tabeli
-        $sql = 'DROP TABLE IF EXISTS `ps_allegro_account`;';
+        $sql = $this->moduleInstallationManager->getDropSql();
 
         if (!Db::getInstance()->execute($sql)) {
             return false;

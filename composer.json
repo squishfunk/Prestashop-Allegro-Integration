@@ -14,13 +14,18 @@
     },
     "require": {
         "php": ">=7.1.0",
-        "imper86/php-allegro-api": "^2.1"
+        "imper86/php-allegro-api": "1.1.3",
+        "guzzlehttp/promises": "^1.5"
     },
     "config": {
+        "platform-check": false,
         "preferred-install": "dist",
         "prepend-autoloader": false,
         "allow-plugins": {
             "php-http/discovery": true
+        },
+        "platform": {
+            "php": "7.2.0"
         }
     },
     "type": "prestashop-module"
