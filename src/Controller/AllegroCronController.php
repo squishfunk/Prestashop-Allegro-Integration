@@ -11,7 +11,7 @@ class AllegroCronController extends FrameworkBundleAdminController
 {
 
     function importProductsFromAllegro(){
-        $importer = new ImportProduct();
+        $importer = new ImportProduct($this->getDoctrine()->getManager());
         $importer->run();
         echo 'done';
         exit;
