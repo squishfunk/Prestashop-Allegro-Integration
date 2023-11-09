@@ -34,17 +34,25 @@ class ImportProduct implements ImportServiceInterface
     private ObjectManager $entityManager;
 
     /**
+     * @var bool
+     */
+    private bool $isTest;
+
+    /**
      * ImportProduct constructor.
      */
-    public function __construct(ObjectManager $entityManager)
+    public function __construct(ObjectManager $entityManager, bool $isTest)
     {
         $this->api = AllegroSingleton::getInstance();
         $this->entityManager = $entityManager;
+        $this->isTest = $isTest;
     }
 
     public function run(): void{
         /* 24h */
         set_time_limit(1 * 60 * 60 * 24);
+
+        (new ClearAllegroExternals($this->entityManager))->run();
 
         $actualOffset = 0;
         $pageLimit = 20;
@@ -53,6 +61,9 @@ class ImportProduct implements ImportServiceInterface
             $offers = json_decode($this->api->sale()->offers()->get(null, ['offset' => $actualOffset, 'limit' => $pageLimit])->getBody()->getContents(), true);
             $this->processAllegroOffers($offers['offers']);
             $actualOffset++;
+            if($this->isTest){
+                break;
+            }
         }while(count($offers['offers']) == $pageLimit);
     }
 
@@ -87,8 +98,8 @@ class ImportProduct implements ImportServiceInterface
         $new = true;
         if($productId = $this->getProductIdByProductReference($ref)){
             $product = new Product($productId);
-            $new = false;
         }else{
+            $new = false;
             $product = new Product();
         }
 
@@ -107,17 +118,17 @@ class ImportProduct implements ImportServiceInterface
         $product->link_rewrite = Tools::str2url($name);
         $product->save();
 
+        if($this->isTest){
+            dump($product);
+        }
 
-        StockAvailable::setQuantity($product->id, null, $qty); // id_product, id_product_attribute, quantity
+        StockAvailable::setQuantity($product->id, null, $qty);
         if(!empty($catAll)){
             $product->addToCategories($catAll);
         }
 
         $this->createOrUpdateProductFeatures($product->id, $features);
         $this->createOrUpdateProductPhotos($product->id, $imgUrls);
-        if($new){
-            /* TODO */
-        }
 
         if($new){
             echo 'Product added successfully (ID: ' . $product->id . ') <br>';
@@ -169,7 +180,6 @@ class ImportProduct implements ImportServiceInterface
 
         foreach($offer['productSet'][0]['product']['parameters'] as $parameter){
             if(empty($parameter['values'])){
-                /* TODO obsłużyć wartości valuesIds */
                 continue;
             }
 
@@ -248,8 +258,6 @@ class ImportProduct implements ImportServiceInterface
 
         $shops = Shop::getShops(true, null, true);
 
-        /* TODO */$imgUrls[] = "https://www.pastelowelove.pl/userdata/public/gfx/5582/kotek-mruczek--naklejka.-naklejka-dla-dzieci.-dekoracje-pokoju.jpg";
-
         foreach(array_values($imgUrls) as $index => $imgUrl){
             $photo_md5 = md5(file_get_contents($imgUrl));
             $existingImg = $this->entityManager->getRepository(AllegroExternal::class)->findOneBy(['externalId' => $photo_md5, 'modelName' => 'Image']);
@@ -268,8 +276,6 @@ class ImportProduct implements ImportServiceInterface
             }else{
                 $image->cover = false;
             }
-            dump($image);
-            dd($image);
             if (($image->validateFields(false, true)) === true && ($image->validateFieldsLang(false, true)) === true && $image->add()) {
                 $image->associateTo($shops);
                 if ($this->uploadImage($productId, $image->id, $imgUrl)) {
@@ -388,20 +394,29 @@ class ImportProduct implements ImportServiceInterface
     }
 
     /**
-     * @param array $offers1
+     * @param array $offers
      */
-    public function processAllegroOffers($offers1): void
+    public function processAllegroOffers($offers): void
     {
-        foreach ($offers1 as $offer_data) {
+        foreach ($offers as $offer_data) {
             /* Pobranie szczegółów oferty */
             $offer = json_decode($this->api->sale()->productOffers()->get($offer_data['id'], ContentType::VND_PUBLIC_V1)->getBody()->getContents(), true);
 
             /* Jeśli oferta bez produktyzacji skip */
-            if (!isset($offer['productSet'][0]['product']) || !isset($offer['external']['id'])) {
+            if (!isset($offer['productSet'][0]['product']) || !isset($offer['external']['id']) || $offer['publication']['status'] == 'INACTIVE') {
                 continue;
             }
 
-            list($ean, $productRef, $productName, $productQuantity, $productDescription, $features, $productPrice, $urlList, $mainCategoryId) = $this->getDataFromOfferToBuildProduct($offer);
+            list($ean,
+                $productRef,
+                $productName,
+                $productQuantity,
+                $productDescription,
+                $features,
+                $productPrice,
+                $urlList,
+                $mainCategoryId
+                ) = $this->getDataFromOfferToBuildProduct($offer);
 
             try {
                 $this->addOrUpdateProduct(
@@ -426,7 +441,7 @@ class ImportProduct implements ImportServiceInterface
      * @param mixed $offer
      * @return array
      */
-    public function getDataFromOfferToBuildProduct(mixed $offer): array
+    public function getDataFromOfferToBuildProduct(array $offer): array
     {
         [$ean, $features] = $this->getDataFromAllegroProductParameters($offer);
 
@@ -446,11 +461,26 @@ class ImportProduct implements ImportServiceInterface
             }
         }
 
+        if(!isset($offer['sellingMode']['price']['amount'])){
+            dump($offer);
+            exit;
+        }
+
         $productQuantity = $offer['stock']['available'];
         $productPrice = $offer['sellingMode']['price']['amount'];
         $productRef = $offer['external']['id'];
 
         $mainCategoryId = $this->getMainAllegroCategoryIdAndImport($offer['category']['id'], true);
-        return array($ean, $productRef, $productName, $productQuantity, $productDescription, $features, $productPrice, $urlList, $mainCategoryId);
+
+        return array(
+            $ean,
+            $productRef,
+            $productName,
+            $productQuantity,
+            $productDescription,
+            $features,
+            $productPrice,
+            $urlList,
+            $mainCategoryId);
     }
 }
