@@ -127,8 +127,10 @@ class ImportProduct implements ImportServiceInterface
             $product->addToCategories($catAll);
         }
 
-        $this->createOrUpdateProductFeatures($product->id, $features);
-        $this->createOrUpdateProductPhotos($product->id, $imgUrls);
+        if($new){
+            $this->createOrUpdateProductFeatures($product->id, $features);
+            $this->createOrUpdateProductPhotos($product->id, $imgUrls);
+        }
 
         if($new){
             echo 'Product added successfully (ID: ' . $product->id . ') <br>';
